@@ -7,10 +7,8 @@ from typing import Annotated
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.security import APIKeyHeader
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent
-from pydantic_ai.models.google import GoogleModel
-from pydantic_ai.providers.google import GoogleProvider
 
 load_dotenv()
 
@@ -22,8 +20,11 @@ app = FastAPI(title="Remote ASR")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-class TranscriptionResponse(BaseModel):
+class TranscriptionResult(BaseModel):
     transcription: str
+    accent: str | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    accent_confidence: float | None = Field(default=None, ge=0, le=1)
 
 
 def require_api_key(
@@ -36,53 +37,32 @@ def require_api_key(
         )
 
 
-@lru_cache
-def get_agent():
-    gemini_api_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_api_key:
-        raise RuntimeError("GEMINI_API_KEY is not set")
+def get_transcription(audio: UploadFile):
+    agent = Agent(
+        model="google:gemini-3.5-flash",
+        output_type=TranscriptionResult,
+        system_prompt="you are an ASR-ATC project",
+    )
 
-    model = GoogleModel(
-        MODEL_NAME,
-        provider=GoogleProvider(api_key=gemini_api_key),
+    result = agent.run_sync(
+        [
+            "you are given and ATC audio file. transcribe it. accuracy is very important."
+            "don't seperate pilot and controller. include all of them in one result."
+            "unforgivable thing is when you add something to the transcript that is not in the audio"
+            "also return accent(don't say non native say nationality for example say Arabic) and confidence (a number from 0 to 1) of the transcript based on output model",
+            BinaryContent(data=audio.file.read(), media_type="audio/wav"),
+        ]
     )
-    return Agent(
-        model,
-        output_type=TranscriptionResponse,
-        system_prompt="You are an accurate ATC transcription system."
-    )
+
+    return result.output
 
 
 @app.post(
     "/transcribe",
-    response_model=TranscriptionResponse,
+    response_model=TranscriptionResult,
     dependencies=[Depends(require_api_key)],
 )
 async def transcribe(
     audio: Annotated[UploadFile, File(description="Audio file to transcribe")],
-) -> TranscriptionResponse:
-    media_type = audio.content_type or mimetypes.guess_type(audio.filename or "")[0]
-    if media_type is None or not media_type.startswith("audio/"):
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="The uploaded file must be audio",
-        )
-
-    data = await audio.read(MAX_AUDIO_SIZE + 1)
-    await audio.close()
-
-    if not data:
-        raise HTTPException(status_code=400, detail="The uploaded audio file is empty")
-    if len(data) > MAX_AUDIO_SIZE:
-        raise HTTPException(status_code=413, detail="Audio file exceeds the 10 MiB limit")
-    
-    p = "Transcribe every pilot and controller utterance into one transcript. Do not "\
-        "invent speech. Also identify the spoken accent category (not nationality or "\
-        "ethnicity), transcription confidence, and accent confidence from 0 to 1.",
-    result = await get_agent().run(
-        [
-            p,
-            BinaryContent(data=data, media_type=media_type),
-        ]
-    )
-    return result.output
+) -> TranscriptionResult:
+    return get_transcription(audio)
