@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent, BinaryContent
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.providers.google import GoogleProvider
+
 load_dotenv()
 
 MODEL_NAME = "gemini-3.5-flash"
@@ -36,7 +37,7 @@ def require_api_key(
 
 
 @lru_cache
-def get_agent() -> Agent:
+def get_agent():
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
@@ -45,7 +46,11 @@ def get_agent() -> Agent:
         MODEL_NAME,
         provider=GoogleProvider(api_key=gemini_api_key),
     )
-    return Agent(model)
+    return Agent(
+        model,
+        output_type=TranscriptionResponse,
+        system_prompt="You are an accurate ATC transcription system."
+    )
 
 
 @app.post(
@@ -70,14 +75,14 @@ async def transcribe(
         raise HTTPException(status_code=400, detail="The uploaded audio file is empty")
     if len(data) > MAX_AUDIO_SIZE:
         raise HTTPException(status_code=413, detail="Audio file exceeds the 10 MiB limit")
-
+    
+    p = "Transcribe every pilot and controller utterance into one transcript. Do not "\
+        "invent speech. Also identify the spoken accent category (not nationality or "\
+        "ethnicity), transcription confidence, and accent confidence from 0 to 1.",
     result = await get_agent().run(
         [
-            (
-                "Transcribe this audio verbatim. Preserve the spoken language and add "
-                "punctuation where clear. Return only the transcription."
-            ),
+            p,
             BinaryContent(data=data, media_type=media_type),
         ]
     )
-    return TranscriptionResponse(transcription=result.output.strip())
+    return result.output
