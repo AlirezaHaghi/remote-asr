@@ -1,6 +1,3 @@
-import mimetypes
-import os
-from functools import lru_cache
 from hmac import compare_digest
 from typing import Annotated
 
@@ -62,7 +59,7 @@ def get_transcription(audio: UploadFile):
     response_model=TranscriptionResult,
     dependencies=[Depends(require_api_key)],
 )
-async def transcribe(
+def transcribe(
     audio: Annotated[UploadFile, File(description="Audio file to transcribe")],
 ) -> TranscriptionResult:
     return get_transcription(audio)
