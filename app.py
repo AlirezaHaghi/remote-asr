@@ -4,12 +4,14 @@ from functools import lru_cache
 from hmac import compare_digest
 from typing import Annotated
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from pydantic_ai import Agent, BinaryContent
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.providers.google import GoogleProvider
+load_dotenv()
 
 MODEL_NAME = "gemini-3.5-flash"
 API_KEY = "7DJBK_iHnZpoNzdtHmuodHaF0bUhLddPuxX01qrbEdE"
