@@ -63,3 +63,28 @@ def transcribe(
     audio: Annotated[UploadFile, File(description="Audio file to transcribe")],
 ) -> TranscriptionResult:
     return get_transcription(audio)
+
+
+class SpeakerVerificationResult(BaseModel):
+    same_speaker: bool
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+@app.post("/verify-speaker", response_model=SpeakerVerificationResult)
+def verify_speaker(
+    reference:     Annotated[UploadFile, File()],
+    candidate:     Annotated[UploadFile, File()],
+):
+    agent = Agent(
+        model="google:gemini-3.5-flash",
+        output_type=SpeakerVerificationResult,
+        system_prompt="you are an Speaker Similarity Check assistance",
+    )
+    result = agent.run_sync(
+        [
+            "Compare these two audio clips. Are they from the same speaker? Return same_speaker (bool) and confidence (0 to 1).",
+            BinaryContent(data=reference.file.read(), media_type="audio/wav"),
+            BinaryContent(data=candidate.file.read(), media_type="audio/wav"),
+        ]
+    )
+    return result.output
